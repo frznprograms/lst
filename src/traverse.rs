@@ -6,22 +6,21 @@ use std::io;
 use std::{
     ffi::OsString,
     fs::{FileType, ReadDir},
-    os::unix::fs::MetadataExt,
     path::Path,
     time::SystemTime,
 };
 
 // cannot be named File to prevent clash with std::fs::File
 pub struct FileInfo {
-    name: OsString,
-    file_type: FileType,
-    size: u64,
-    created: SystemTime,
-    last_modified: SystemTime,
+    pub name: OsString,
+    pub file_type: FileType,
+    pub size: u64,
+    pub created: Option<SystemTime>,
+    pub last_modified: Option<SystemTime>,
 }
 
 pub struct DirInfo {
-    name: OsString,
+    pub name: OsString,
 }
 
 pub enum Entry {
@@ -34,36 +33,39 @@ pub fn walk(p: &Path) -> io::Result<Vec<Entry>> {
     // if this fails, no point continuing; let main handle it
     let iterator: ReadDir = p.read_dir()?;
     for entry in iterator {
-        if let Ok(entry) = entry {
-            if let Ok(metadata) = entry.metadata() {
-                if metadata.is_dir() {
-                    lst.push(Entry::LocalDir(DirInfo {
-                        name: entry.file_name(),
-                    }))
-                } else if metadata.is_file() {
-                    let created_sys_time = match metadata.created() {
-                        Ok(time) => time,
-                        Err(_) => SystemTime(), // TODO: change to sensible default
-                    };
-                    let modified_sys_time = match metadata.modified() {
-                        Ok(time) => time,
-                        Err(_) => SystemTime(),
-                    };
-                    lst.push(Entry::LocalFile(FileInfo {
-                        name: entry.file_name(),
-                        file_type: metadata.file_type(),
-                        size: metadata.size(),
-                        created: created_sys_time,
-                        last_modified: modified_sys_time,
-                    }))
-                }
-            } else {
-                eprintln!("unable to read metadata from {}", entry.path().display());
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("unable to read an entry in {}: {e}", p.display());
                 continue;
             }
-        } else {
-            eprintln!("unable to read {}", entry.file_path());
-            continue;
+        };
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!(
+                    "unable to read metadata for {}: {e}",
+                    entry.path().display()
+                );
+                continue;
+            }
+        };
+        if metadata.is_dir() {
+            lst.push(Entry::LocalDir(DirInfo {
+                name: entry.file_name(),
+            }))
+        } else if metadata.is_file() {
+            // alternative to .ok() would be .unwrap_or(SystemTime::UNIX_EPOCH)
+            let created_sys_time = metadata.created().ok();
+            let modified_sys_time = metadata.modified().ok();
+            lst.push(Entry::LocalFile(FileInfo {
+                name: entry.file_name(),
+                file_type: metadata.file_type(),
+                size: metadata.len(), // better than .size(), works on every platform
+                created: created_sys_time,
+                last_modified: modified_sys_time,
+            }))
+            // TODO: add another branch for symlinks
         }
     }
 
