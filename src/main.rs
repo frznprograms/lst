@@ -13,15 +13,12 @@ pub struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    let path = match cli.path {
-        Some(path) => path,
-        None => PathBuf::from("."), // if no path is given, path will be "."
-    };
-
+    // default path will always be cwd
+    let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     println!("{:?}", path);
 
     let lst = walk(&path);
-    for name in &lst {
-        println!("{:?}", name)
+    for entry in &lst {
+        println!("{:?}", entry.name)
     }
 }
