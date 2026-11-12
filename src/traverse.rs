@@ -113,12 +113,12 @@ pub fn walk_recursive(p: &Path) -> io::Result<Vec<Entry>> {
         if metadata.is_dir() {
             lst.push(Entry::LocalDir(DirInfo {
                 name: entry.file_name(),
-                depth: depth,
+                depth,
             }));
             let children_iter = match entry.path().read_dir() {
                 Ok(it) => it,
                 Err(e) => {
-                    eprintln!("unable to read an entry in {}: {e}", entry.path().display());
+                    eprintln!("unable to open directory {}: {e}", entry.path().display());
                     continue;
                 }
             };
@@ -128,6 +128,7 @@ pub fn walk_recursive(p: &Path) -> io::Result<Vec<Entry>> {
                 let entry = match entry {
                     Ok(e) => e,
                     Err(_) => {
+                        // TODO: implement better error message
                         continue;
                     }
                 };
@@ -137,7 +138,7 @@ pub fn walk_recursive(p: &Path) -> io::Result<Vec<Entry>> {
             for child in children {
                 stack.push((child, depth + 1));
             }
-        } else {
+        } else if metadata.is_file() {
             let created_sys_time = metadata.created().ok();
             let modified_sys_time = metadata.modified().ok();
             lst.push(Entry::LocalFile(FileInfo {
@@ -146,7 +147,7 @@ pub fn walk_recursive(p: &Path) -> io::Result<Vec<Entry>> {
                 size: metadata.len(),
                 created: created_sys_time,
                 last_modified: modified_sys_time,
-                depth: depth,
+                depth,
             }))
         }
     }
