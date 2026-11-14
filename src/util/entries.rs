@@ -138,7 +138,7 @@ fn format_name(name: Cow<str>, depth: usize, is_dir: bool) -> Cow<str> {
 fn format_size(size: u64) -> String {
     let bytes = size as f64;
     match size {
-        0..1_000 => format!("{size} B"),
+        0..1_000 => format!("{size}  B"), // extra space added on purpose
         1_000..1_000_000 => format!("{:.2} KB", bytes / 1e3),
         1_000_000..1_000_000_000 => format!("{:.2} MB", bytes / 1e6),
         _ => format!("{:.2} GB", bytes / 1e9),
