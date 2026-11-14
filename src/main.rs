@@ -1,14 +1,13 @@
 use std::{io, path::PathBuf};
 
-use lst::traverse::walk;
-
 use clap::Parser;
+use lst::cli::Cli;
+use lst::traverse::walk;
+use tabled::{Table, settings::style::Style};
 
-#[derive(Parser)]
-#[command(version, about)]
-pub struct Cli {
-    path: Option<PathBuf>,
-}
+// TODO: account for files that should be ignored
+// TODO: add indent for different levels in table
+// TODO: add forward slash for directories in table
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -27,5 +26,11 @@ fn main() -> io::Result<()> {
         let suffix: &str = if entry.is_dir() { "/" } else { "" };
         println!("{}{}{}", indent, entry.name().to_string_lossy(), suffix);
     }
+    println!("---");
+
+    let mut table = Table::new(&lst);
+    table.with(Style::rounded());
+    println!("{table}");
+
     Ok(())
 }
