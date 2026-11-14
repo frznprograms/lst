@@ -1,13 +1,17 @@
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
 use std::fs::{DirEntry, FileType, Metadata};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{io, vec};
+use std::time::SystemTime;
+use std::{io, iter, vec};
 use tabled::Tabled;
 
 use Entry::{LocalDir, LocalFile};
+use time::OffsetDateTime;
+use time::format_description::BorrowedFormatItem;
+use time::macros::format_description;
 
 // cannot be named File to prevent clash with std::fs::File
+#[derive(Debug)]
 pub struct FileInfo {
     pub name: OsString,
     pub file_type: FileType,
@@ -17,12 +21,13 @@ pub struct FileInfo {
     pub depth: usize,
 }
 
+#[derive(Debug)]
 pub struct DirInfo {
     pub name: OsString,
     pub depth: usize,
 }
 
-// TODO: implement display trait on Entry
+#[derive(Debug)]
 pub enum Entry {
     LocalFile(FileInfo),
     LocalDir(DirInfo),
@@ -76,50 +81,82 @@ impl Entry {
 }
 
 impl Tabled for Entry {
-    const LENGTH: usize = 6;
+    const LENGTH: usize = 5;
     fn headers() -> Vec<Cow<'static, str>> {
         vec![
             "Name".into(),
             "Type".into(),
-            "Size (bytes)".into(),
+            "Size".into(),
             "Created".into(),
             "Last Modified".into(),
-            "Depth".into(),
         ]
     }
 
     fn fields(&self) -> Vec<Cow<'_, str>> {
         match self {
             LocalDir(d) => vec![
-                d.name.to_string_lossy(),
+                format_name(d.name.to_string_lossy(), d.depth, true),
                 "dir".into(),
                 "-".into(),
                 "-".into(),
                 "-".into(),
-                d.depth.to_string().into(),
             ],
             LocalFile(f) => vec![
-                f.name.to_string_lossy(),
-                file_type_label(&f.file_type).into(),
-                f.size.to_string().into(),
+                format_name(f.name.to_string_lossy(), f.depth, false),
+                "file".into(),
+                format_size(f.size).into(),
                 format_time(f.created).into(),
                 format_time(f.last_modified).into(),
-                f.depth.to_string().into(),
             ],
         }
     }
 }
 
-fn file_type_label(file_type: &FileType) -> &'static str {
-    if file_type.is_file() { "file" } else { "other" }
+// format the name of a file/dir by adding a small indent based on the
+// depth of the file/dir relative to the root.
+// returns a Cow<str>, so no need to convert further
+fn format_name(name: Cow<str>, depth: usize, is_dir: bool) -> Cow<str> {
+    let indent = 2 * (depth - 1);
+    if indent == 0 && !is_dir {
+        return name;
+    };
+
+    let mut res = String::with_capacity(indent + name.len() + 1);
+    // same as for 0..indent {res.push_str(" ")};
+    res.extend(iter::repeat_n(" ", indent));
+    res.push_str(&name);
+    if is_dir {
+        res.push('/');
+    }
+
+    Cow::Owned(res)
 }
 
-/// Seconds since the unix epoch, or "-" if the platform didn't provide a time.
+/// Formats a file size with a suffix, using decimal units (1 KB = 1000 B).
+/// Returns "B", "KB", "MB" or "GB" where applicable. Bytes are shown exactly,
+/// larger units are rounded to 2 d.p.
+fn format_size(size: u64) -> String {
+    let bytes = size as f64;
+    match size {
+        0..1_000 => format!("{size} B"),
+        1_000..1_000_000 => format!("{:.2} KB", bytes / 1e3),
+        1_000_000..1_000_000_000 => format!("{:.2} MB", bytes / 1e6),
+        _ => format!("{:.2} GB", bytes / 1e9),
+    }
+}
+
+/// formats the time in a prettier format.
 fn format_time(time: Option<SystemTime>) -> String {
-    time.and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map_or_else(|| "-".to_string(), |d| d.as_secs().to_string())
+    let system_time = match time {
+        Some(t) => t,
+        None => return "_".to_string(),
+    };
+    let dt: OffsetDateTime = OffsetDateTime::from(system_time);
+    let fmt: &[BorrowedFormatItem<'_>] =
+        format_description!("[year]-[month]-[day] [hour]:[minute]");
+
+    // capture error if any and return "-", else just return the time
+    dt.format(fmt).unwrap_or_else(|_| "-".to_string())
 }
 
-// TODO: implement
-/// formats the size of a file, appending "B", "KB", "MB", "GB" where applicable
-fn format_size() {}
+// TODO: implement cli flag to toggle usage of bytes or higher
