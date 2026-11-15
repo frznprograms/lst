@@ -4,6 +4,7 @@ use clap::Parser;
 use lst::cli::Cli;
 use lst::traverse::walk;
 use lst::util::entries::Entry;
+use lst::util::ignore::IgnoreRules;
 use tabled::{
     Table,
     settings::{
@@ -13,8 +14,6 @@ use tabled::{
     },
 };
 
-// TODO: account for files that should be ignored
-
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
@@ -23,8 +22,9 @@ fn main() -> io::Result<()> {
     println!("{:?}", path);
     println!();
 
-    // TODO: should be driven by cli flag in future
-    let lst = walk(&path, None)?;
+    // TODO: show_hidden and extra patterns should be driven by cli flags
+    let ignore_rules = IgnoreRules::new(&path, false, &[]);
+    let lst = walk(&path, None, &ignore_rules)?;
     // let lst = walk(&path, Some(1))?;
 
     println!("---");

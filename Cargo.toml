@@ -7,3 +7,4 @@ edition = "2024"
 clap = { version = "4.6.7", features = ["derive"] }
 tabled = "0.22.0"
 time = { version = "0.3", features = ["formatting", "macros"] }
+ignore = "0.4"
