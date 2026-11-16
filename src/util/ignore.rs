@@ -9,6 +9,8 @@ pub struct IgnoreRules {
     ignore_hidden: bool,
 }
 
+// TODO: implement recursive ignore for nested .gitignore files
+
 impl IgnoreRules {
     /// Builds the rules for a listing rooted at `root`. Only the `.gitignore`
     /// directly inside `root` is read. Bad patterns and unreadable files are

@@ -10,6 +10,8 @@ use time::OffsetDateTime;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 
+use crate::util::icons::icon_for;
+
 // cannot be named File to prevent clash with std::fs::File
 #[derive(Debug)]
 pub struct FileInfo {
@@ -117,13 +119,13 @@ impl Tabled for Entry {
 // returns a Cow<str>, so no need to convert further
 fn format_name(name: Cow<str>, depth: usize, is_dir: bool) -> Cow<str> {
     let indent = 2 * (depth - 1);
-    if indent == 0 && !is_dir {
-        return name;
-    };
+    let icon = icon_for(&name, is_dir);
 
-    let mut res = String::with_capacity(indent + name.len() + 1);
+    let mut res = String::with_capacity(indent + name.len() + 2);
     // same as for 0..indent {res.push_str(" ")};
     res.extend(iter::repeat_n(" ", indent));
+    res.push_str(icon);
+    res.push(' ');
     res.push_str(&name);
     if is_dir {
         res.push('/');
