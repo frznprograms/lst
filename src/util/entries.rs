@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fs::{DirEntry, FileType, Metadata};
+use std::fs::{FileType, Metadata};
 use std::time::SystemTime;
 use std::{io, iter, vec};
+
+use ignore::DirEntry;
 use tabled::Tabled;
 
 use Entry::{LocalDir, LocalFile};
@@ -37,10 +39,11 @@ pub enum Entry {
 
 impl Entry {
     /// Associated fn of Entry. Build an Entry from a DirEntry, Fails only if
-    /// metadata can't be read.
-    pub(crate) fn from_dir_entry(entry: &DirEntry, depth: usize) -> io::Result<Self> {
-        let meta: Metadata = entry.metadata()?;
-        let name = entry.file_name();
+    /// metadata can't be read. Depth is taken from the walker (root children = 1).
+    pub(crate) fn from_dir_entry(entry: &DirEntry) -> io::Result<Self> {
+        let meta: Metadata = entry.metadata().map_err(io::Error::other)?;
+        let name = entry.file_name().to_os_string();
+        let depth = entry.depth();
         if meta.is_dir() {
             Ok(LocalDir(DirInfo { name, depth }))
         } else if meta.is_file() {

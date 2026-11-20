@@ -1,58 +1,68 @@
-use std::fs::DirEntry;
 use std::io;
 use std::path::Path;
 
-use crate::util::entries::Entry;
-use crate::util::helpers::read_children;
-use crate::util::ignore::IgnoreRules;
+use ignore::WalkBuilder;
 
-/// Iterative pre-order DFS to walk through a file directory.
+use crate::util::entries::Entry;
+use crate::util::ignore::IgnoreOptions;
+
+/// Pre-order walk (a directory is listed before its contents, siblings sorted
+/// by name) through a file directory.
 /// When max_depth = Some(1), this functions as a plain `ls` command on CLI.
 /// When max_depth = None, it traverses the entire file tree.
+/// Dotfiles and anything matched by a `.gitignore` (nested ones, and ones in
+/// parent directories of `root`) are skipped, as configured by `opts`.
 /// Fails only if `root` itself cannot be read.
 pub fn walk(
     root: &Path,
     max_depth: Option<usize>,
-    ignore_rules: &IgnoreRules,
+    opts: &IgnoreOptions,
 ) -> io::Result<Vec<Entry>> {
+    // root failing to read is propagated to main; the walker would only
+    // report it later as an item
+    root.read_dir()?;
+
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .max_depth(max_depth)
+        // .gitignore, .git/info/exclude, global ignore file, parent dirs
+        .standard_filters(!opts.no_ignore)
+        // set after standard_filters, which also toggles this
+        .hidden(!opts.show_hidden)
+        .overrides(opts.overrides(root))
+        .sort_by_file_name(|a, b| a.cmp(b))
+        // with -a, list `.git` itself but never descend into it
+        .filter_entry(|e| {
+            let in_dot_git = e
+                .path()
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name == ".git");
+            // depth 1 children of `root` are always kept, in case root is `.git`
+            e.depth() <= 1 || !in_dot_git
+        });
+
     let mut lst = Vec::new();
-    let mut stack: Vec<(DirEntry, usize)> = Vec::new();
-
-    // root failing to read is propagated to main
-    // sort children in reverse order, so they are popped from stack in order
-    let root_children: Vec<DirEntry> = read_children(root, ignore_rules)?;
-    stack.extend(root_children.into_iter().map(|e| (e, 1)));
-
-    while let Some((dir_entry, depth)) = stack.pop() {
-        let entry = match Entry::from_dir_entry(&dir_entry, depth) {
-            Ok(en) => en,
+    for result in builder.build() {
+        let dir_entry = match result {
+            Ok(e) => e,
             Err(e) => {
-                eprintln!(
-                    "unable to read metadata for {}: {e}",
-                    dir_entry.path().display()
-                );
+                eprintln!("unable to read an entry under {}: {e}", root.display());
                 continue;
             }
         };
-        // check recursive descend condition
-        let descend: bool = entry.is_dir() && max_depth.is_none_or(|max| depth < max);
-        lst.push(entry);
-        if !descend {
+        // the walker yields `root` itself first
+        if dir_entry.depth() == 0 {
             continue;
         }
 
-        let children = match read_children(&dir_entry.path(), ignore_rules) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "unable to open directory {}: {e}",
-                    dir_entry.path().display()
-                );
-                continue;
-            }
-        };
-        // reverse and add to the stack with higher depth
-        stack.extend(children.into_iter().map(|e| (e, depth + 1)));
+        match Entry::from_dir_entry(&dir_entry) {
+            Ok(entry) => lst.push(entry),
+            Err(e) => eprintln!(
+                "unable to read metadata for {}: {e}",
+                dir_entry.path().display()
+            ),
+        }
     }
 
     Ok(lst)

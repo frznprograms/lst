@@ -4,7 +4,7 @@ use clap::Parser;
 use lst::cli::Cli;
 use lst::traverse::walk;
 use lst::util::entries::Entry;
-use lst::util::ignore::IgnoreRules;
+use lst::util::ignore::IgnoreOptions;
 use tabled::{
     Table,
     settings::{
@@ -22,10 +22,15 @@ fn main() -> io::Result<()> {
     println!("{:?}", path);
     println!();
 
-    // TODO: show_hidden and extra patterns should be driven by cli flags
-    let ignore_rules = IgnoreRules::new(&path, false, &[]);
-    let lst = walk(&path, None, &ignore_rules)?;
-    // let lst = walk(&path, Some(1))?;
+    let opts = IgnoreOptions {
+        show_hidden: cli.all,
+        no_ignore: cli.no_ignore,
+        patterns: cli.ignore,
+    };
+
+    // TODO: max depth should be driven by cli flag in future
+    let lst = walk(&path, None, &opts)?;
+    // let lst = walk(&path, Some(1), &opts)?;
 
     println!("---");
     let table = render_table(&lst);

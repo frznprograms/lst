@@ -1,56 +1,34 @@
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
+use ignore::overrides::{Override, OverrideBuilder};
 use std::path::Path;
 
-/// Decides which entries are left out of the listing: dotfiles (unless
-/// `show_hidden`), plus anything matched by the root `.gitignore` or by extra
-/// gitignore-style patterns.
-pub struct IgnoreRules {
-    matcher: Gitignore,
-    ignore_hidden: bool,
+/// What the user has asked to leave in or out of the listing. The traversal
+/// (`ignore::WalkBuilder`) does the actual `.gitignore` handling, including
+/// nested and parent `.gitignore` files; this only carries the choices.
+#[derive(Debug, Default)]
+pub struct IgnoreOptions {
+    /// Include dotfiles, like `ls -a`.
+    pub show_hidden: bool,
+    /// Don't apply `.gitignore` (and similar) rules.
+    pub no_ignore: bool,
+    /// Extra gitignore-style patterns to leave out, applied on top of the rules above.
+    pub patterns: Vec<String>,
 }
 
-// TODO: implement recursive ignore for nested .gitignore files
-
-impl IgnoreRules {
-    /// Builds the rules for a listing rooted at `root`. Only the `.gitignore`
-    /// directly inside `root` is read. Bad patterns and unreadable files are
-    /// reported and skipped, never fatal.
-    pub fn new(root: &Path, show_hidden: bool, extra_patterns: &[String]) -> Self {
-        let mut builder = GitignoreBuilder::new(root);
-
-        // a missing .gitignore is normal, so only try to read one that exists
-        let gitignore = root.join(".gitignore");
-        if gitignore.is_file()
-            && let Some(e) = builder.add(&gitignore)
-        {
-            eprintln!("unable to fully read {}: {e}", gitignore.display());
-        }
-
-        for pattern in extra_patterns {
-            if let Err(e) = builder.add_line(None, pattern) {
+impl IgnoreOptions {
+    /// Turns the extra patterns into an `Override` rooted at `root`. Bad
+    /// patterns are reported and skipped, never fatal.
+    pub fn overrides(&self, root: &Path) -> Override {
+        let mut builder = OverrideBuilder::new(root);
+        for pattern in &self.patterns {
+            // overrides are inverted compared to .gitignore: a leading `!` means "ignore this"
+            if let Err(e) = builder.add(&format!("!{pattern}")) {
                 eprintln!("invalid ignore pattern {pattern:?}: {e}");
             }
         }
 
-        let matcher = builder.build().unwrap_or_else(|e| {
-            eprintln!("unable to build ignore rules: {e}");
-            Gitignore::empty()
-        });
-
-        IgnoreRules {
-            matcher,
-            ignore_hidden: !show_hidden,
-        }
-    }
-
-    /// Whether `path` should be skipped. `is_dir` matters because patterns
-    /// like `target/` only match directories.
-    pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
-        let is_hidden = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with('.'));
-
-        (self.ignore_hidden && is_hidden) || self.matcher.matched(path, is_dir).is_ignore()
+        builder.build().unwrap_or_else(|e| {
+            eprintln!("unable to build ignore patterns: {e}");
+            Override::empty()
+        })
     }
 }
