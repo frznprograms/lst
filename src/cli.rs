@@ -10,6 +10,8 @@ pub struct Cli {
     #[arg(short, long)]
     pub all: bool,
 
+    pub depth: Option<usize>,
+
     /// Don't apply .gitignore rules
     #[arg(long)]
     pub no_ignore: bool,

@@ -19,8 +19,8 @@ fn main() -> io::Result<()> {
 
     // default path will always be cwd
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    println!("{:?}", path);
-    println!();
+    let depth = cli.depth;
+    dbg!(&path);
 
     let opts = IgnoreOptions {
         show_hidden: cli.all,
@@ -28,8 +28,7 @@ fn main() -> io::Result<()> {
         patterns: cli.ignore,
     };
 
-    // TODO: max depth should be driven by cli flag in future
-    let lst = walk(&path, None, &opts)?;
+    let lst = walk(&path, depth, &opts)?;
     // let lst = walk(&path, Some(1), &opts)?;
 
     println!("---");
