@@ -1,0 +1,18 @@
+[package]
+name = "lst"
+version = "0.1.0"
+edition = "2024"
+description = "An opinionated ls command, written in Rust."
+repository = "https://github.com/frznprograms/lst"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+tabled = "0.22.0"
+time = { version = "0.3", features = ["formatting", "macros"] }
+ignore = "0.4"
+
+[profile.fast]
+inherits = "release"
+incremental = true
+codegen-units = 16
