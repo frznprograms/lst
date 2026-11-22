@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fs::{FileType, Metadata};
+use std::fs::{FileType, Metadata, symlink_metadata};
 use std::time::SystemTime;
 use std::{io, iter, vec};
 
@@ -55,8 +55,18 @@ impl Entry {
                 last_modified: meta.modified().ok(),
                 depth,
             }))
+        } else if meta.is_symlink() {
+            // if fail to read symlink metadata, error out and propagate up
+            let sym_meta = symlink_metadata(entry.path())?;
+            Ok(LocalFile(FileInfo {
+                name,
+                file_type: sym_meta.file_type(),
+                size: sym_meta.len(),
+                created: meta.created().ok(),
+                last_modified: meta.modified().ok(),
+                depth,
+            }))
         } else {
-            // TODO: need to account for symlinks
             Err(io::Error::other("not a regular file or directory"))
         }
     }
