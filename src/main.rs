@@ -1,4 +1,4 @@
-use std::{io, path::PathBuf};
+use std::{io, path::PathBuf, process::ExitCode};
 
 use clap::Parser;
 use lst::cli::Cli;
@@ -15,7 +15,7 @@ use tabled::{
     },
 };
 
-fn main() -> io::Result<()> {
+fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
@@ -25,10 +25,16 @@ fn main() -> io::Result<()> {
         patterns: cli.ignore,
     };
 
-    let entries = walk(&path, cli.depth, &opts)?;
-    println!("{}", render_table(&entries, cli.time));
-
-    Ok(())
+    match walk(&path, cli.depth, &opts) {
+        Ok(entries) => {
+            println!("{}", render_table(&entries, cli.time));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("[lst] {}: {}", path.display(), describe(&e));
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Builds the rounded table: Type centred, Size right-aligned, directories in cyan.
@@ -53,4 +59,15 @@ fn render_table(data: &[Entry], include_times: bool) -> Table {
     }
 
     table
+}
+
+/// The error's message without the " (os error N)" suffix std adds to OS
+/// errors, e.g. "No such file or directory", matching `ls`.
+fn describe(e: &io::Error) -> String {
+    let mut msg = e.to_string();
+    if let Some(i) = msg.rfind("(os error ") {
+        msg.truncate(i);
+    }
+
+    msg
 }
