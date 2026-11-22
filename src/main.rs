@@ -7,6 +7,7 @@ use lst::util::entries::Entry;
 use lst::util::ignore::IgnoreOptions;
 use tabled::{
     Table,
+    builder::Builder,
     settings::{
         Alignment, Color,
         object::{Columns, Rows},
@@ -17,29 +18,28 @@ use tabled::{
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
-    // default path will always be cwd
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let depth = cli.depth;
-    dbg!(&path);
-
     let opts = IgnoreOptions {
         show_hidden: cli.all,
         no_ignore: cli.no_ignore,
         patterns: cli.ignore,
     };
 
-    let lst = walk(&path, depth, &opts)?;
-    // let lst = walk(&path, Some(1), &opts)?;
-
-    println!("---");
-    let table = render_table(&lst);
-    println!("{table}");
+    let entries = walk(&path, cli.depth, &opts)?;
+    println!("{}", render_table(&entries, cli.time));
 
     Ok(())
 }
 
-fn render_table(data: &[Entry]) -> Table {
-    let mut table = Table::new(data);
+/// Builds the rounded table: Type centred, Size right-aligned, directories in cyan.
+fn render_table(data: &[Entry], include_times: bool) -> Table {
+    let mut b = Builder::default();
+    b.push_record(Entry::headers(include_times));
+    for e in data {
+        b.push_record(e.row(include_times));
+    }
+
+    let mut table = b.build();
     table.with(Style::rounded());
     table.modify(Columns::one(1), Alignment::center());
     table.modify(Columns::one(2), Alignment::right());

@@ -1,20 +1,19 @@
 use std::borrow::Cow;
 use std::ffi::{OsStr, OsString};
-use std::fs::{FileType, Metadata, symlink_metadata};
+use std::fs::{FileType, Metadata};
 use std::time::SystemTime;
-use std::{io, iter, vec};
+use std::{io, iter};
 
 use ignore::DirEntry;
-use tabled::Tabled;
-
-use Entry::{LocalDir, LocalFile};
 use time::OffsetDateTime;
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;
 
 use crate::util::icons::icon_for;
+use Entry::{LocalDir, LocalFile};
 
-// cannot be named File to prevent clash with std::fs::File
+/// A file (or symlink) in the listing. Not called `File` to avoid clashing
+/// with `std::fs::File`.
 #[derive(Debug)]
 pub struct FileInfo {
     pub name: OsString,
@@ -25,12 +24,14 @@ pub struct FileInfo {
     pub depth: usize,
 }
 
+/// A directory in the listing.
 #[derive(Debug)]
 pub struct DirInfo {
     pub name: OsString,
     pub depth: usize,
 }
 
+/// One row of the listing: either a file or a directory.
 #[derive(Debug)]
 pub enum Entry {
     LocalFile(FileInfo),
@@ -38,30 +39,23 @@ pub enum Entry {
 }
 
 impl Entry {
-    /// Associated fn of Entry. Build an Entry from a DirEntry, Fails only if
-    /// metadata can't be read. Depth is taken from the walker (root children = 1).
+    /// Builds an `Entry` from a walker `DirEntry`. Depth comes from the walker
+    /// (children of the root are depth 1). Fails if the metadata can't be
+    /// read, or if the entry is neither a file, directory nor symlink (e.g. a
+    /// socket or FIFO).
     pub(crate) fn from_dir_entry(entry: &DirEntry) -> io::Result<Self> {
+        // the walker doesn't follow links, so this is the link's own
+        // metadata (lstat), not its target's
         let meta: Metadata = entry.metadata().map_err(io::Error::other)?;
         let name = entry.file_name().to_os_string();
         let depth = entry.depth();
         if meta.is_dir() {
             Ok(LocalDir(DirInfo { name, depth }))
-        } else if meta.is_file() {
+        } else if meta.is_file() || meta.is_symlink() {
             Ok(LocalFile(FileInfo {
                 name,
                 file_type: meta.file_type(),
                 size: meta.len(),
-                created: meta.created().ok(),
-                last_modified: meta.modified().ok(),
-                depth,
-            }))
-        } else if meta.is_symlink() {
-            // if fail to read symlink metadata, error out and propagate up
-            let sym_meta = symlink_metadata(entry.path())?;
-            Ok(LocalFile(FileInfo {
-                name,
-                file_type: sym_meta.file_type(),
-                size: sym_meta.len(),
                 created: meta.created().ok(),
                 last_modified: meta.modified().ok(),
                 depth,
@@ -71,7 +65,7 @@ impl Entry {
         }
     }
 
-    /// Retrieve name of an entry.
+    /// The entry's file name (without its parent path).
     pub fn name(&self) -> &OsStr {
         match self {
             LocalFile(f) => &f.name,
@@ -79,7 +73,7 @@ impl Entry {
         }
     }
 
-    /// Retrieve depth of an entry.
+    /// How deep the entry sits below the root (children of the root are 1).
     pub fn depth(&self) -> usize {
         match self {
             LocalFile(f) => f.depth,
@@ -87,59 +81,64 @@ impl Entry {
         }
     }
 
-    /// Identify is entry is a directory. Check that it matches the local
-    /// directory struct LocalDir as defined.
+    /// Whether the entry is a directory.
     pub fn is_dir(&self) -> bool {
-        let res = matches!(self, Entry::LocalDir(_));
+        matches!(self, LocalDir(_))
+    }
+
+    /// Column headers for the table, matching the cells from [`Entry::row`].
+    pub fn headers(include_times: bool) -> Vec<&'static str> {
+        let mut res = vec!["Name", "Type", "Size"];
+        if include_times {
+            res.extend_from_slice(&["Created", "Last Modified"]);
+        }
         res
     }
-}
 
-impl Tabled for Entry {
-    const LENGTH: usize = 5;
-    fn headers() -> Vec<Cow<'static, str>> {
-        vec![
-            "Name".into(),
-            "Type".into(),
-            "Size".into(),
-            "Created".into(),
-            "Last Modified".into(),
-        ]
-    }
-
-    fn fields(&self) -> Vec<Cow<'_, str>> {
+    /// The entry's table cells, in the same order as [`Entry::headers`].
+    pub fn row(&self, include_times: bool) -> Vec<Cow<'_, str>> {
         match self {
-            LocalDir(d) => vec![
-                format_name(d.name.to_string_lossy(), d.depth, true),
-                "dir".into(),
-                "-".into(),
-                "-".into(),
-                "-".into(),
-            ],
-            LocalFile(f) => vec![
-                format_name(f.name.to_string_lossy(), f.depth, false),
-                "file".into(),
-                format_size(f.size).into(),
-                format_time(f.created).into(),
-                format_time(f.last_modified).into(),
-            ],
+            LocalDir(d) => {
+                let mut res = vec![
+                    format_name(&d.name.to_string_lossy(), d.depth, true),
+                    "dir".into(),
+                    "-".into(),
+                ];
+                if include_times {
+                    res.extend_from_slice(&["-".into(), "-".into()]);
+                }
+                res
+            }
+            LocalFile(f) => {
+                let mut res = vec![
+                    format_name(&f.name.to_string_lossy(), f.depth, false),
+                    "file".into(),
+                    format_size(f.size).into(),
+                ];
+                if include_times {
+                    res.extend_from_slice(&[
+                        format_time(f.created).into(),
+                        format_time(f.last_modified).into(),
+                    ]);
+                }
+                res
+            }
         }
     }
 }
 
-// format the name of a file/dir by adding a small indent based on the
-// depth of the file/dir relative to the root.
-// returns a Cow<str>, so no need to convert further
-fn format_name(name: Cow<str>, depth: usize, is_dir: bool) -> Cow<str> {
-    let indent = 2 * (depth - 1);
-    let icon = icon_for(&name, is_dir);
+/// Builds the Name cell: two spaces of indent per level below the root, the
+/// Nerd Font icon, then the name (with a trailing `/` for directories).
+fn format_name(name: &str, depth: usize, is_dir: bool) -> Cow<'static, str> {
+    let indent = 2 * depth.saturating_sub(1);
+    let icon = icon_for(name, is_dir);
 
-    let mut res = String::with_capacity(indent + name.len() + 2);
-    // same as for 0..indent {res.push_str(" ")};
-    res.extend(iter::repeat_n(" ", indent));
+    // icon + space + name + optional '/'
+    let mut res = String::with_capacity(indent + icon.len() + name.len() + 2);
+    res.extend(iter::repeat_n(' ', indent));
     res.push_str(icon);
     res.push(' ');
-    res.push_str(&name);
+    res.push_str(name);
     if is_dir {
         res.push('/');
     }
@@ -160,18 +159,12 @@ fn format_size(size: u64) -> String {
     }
 }
 
-/// formats the time in a prettier format.
+/// Formats a timestamp as `YYYY-MM-DD HH:MM` (UTC). Returns "-" when the
+/// platform doesn't provide the time or it can't be formatted.
 fn format_time(time: Option<SystemTime>) -> String {
-    let system_time = match time {
-        Some(t) => t,
-        None => return "_".to_string(),
-    };
-    let dt: OffsetDateTime = OffsetDateTime::from(system_time);
-    let fmt: &[BorrowedFormatItem<'_>] =
+    const FMT: &[BorrowedFormatItem<'_>] =
         format_description!("[year]-[month]-[day] [hour]:[minute]");
 
-    // capture error if any and return "-", else just return the time
-    dt.format(fmt).unwrap_or_else(|_| "-".to_string())
+    time.and_then(|t| OffsetDateTime::from(t).format(FMT).ok())
+        .unwrap_or_else(|| "-".to_string())
 }
-
-// TODO: implement cli flag to toggle usage of bytes or higher

@@ -6,18 +6,17 @@ use ignore::WalkBuilder;
 use crate::util::entries::Entry;
 use crate::util::ignore::IgnoreOptions;
 
-/// Pre-order walk (a directory is listed before its contents, siblings sorted
-/// by name) through a file directory.
-/// When max_depth = Some(1), this functions as a plain `ls` command on CLI.
-/// When max_depth = None, it traverses the entire file tree.
-/// Dotfiles and anything matched by a `.gitignore` (nested ones, and ones in
-/// parent directories of `root`) are skipped, as configured by `opts`.
-/// Fails only if `root` itself cannot be read.
-pub fn walk(
-    root: &Path,
-    max_depth: Option<usize>,
-    opts: &IgnoreOptions,
-) -> io::Result<Vec<Entry>> {
+/// Pre-order walk of `root` (a directory is listed before its contents,
+/// siblings sorted by name).
+///
+/// `max_depth = Some(1)` lists only `root`'s own contents, like plain `ls`;
+/// `None` walks the whole tree. Dotfiles and anything matched by a
+/// `.gitignore` (nested ones, and ones in parent directories of `root`) are
+/// skipped unless `opts` says otherwise.
+///
+/// Fails only if `root` itself cannot be read; unreadable entries below it
+/// are reported on stderr and skipped.
+pub fn walk(root: &Path, max_depth: Option<usize>, opts: &IgnoreOptions) -> io::Result<Vec<Entry>> {
     // root failing to read is propagated to main; the walker would only
     // report it later as an item
     root.read_dir()?;
